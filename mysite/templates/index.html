@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Audio to Text Conversion</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            $('#fileUploadForm').on('submit', function (event) {
+                event.preventDefault(); // Prevent the default form submit
+                var formData = new FormData(this);
+                $.ajax({
+                    type: 'POST',
+                    url: '/upload',
+                    data: formData,
+                    contentType: false,
+                    processData: false,
+                    success: function (data) {
+                        if (data.error) {
+                            $('#result').append(`<p>Error: ${data.error}</p>`);
+                        } else {
+                            $('#result').append(`<p>User Transcription: ${data.transcription}</p>`);
+                            $('#result').append(`<p>AI Response: ${data.response}</p>`);
+                        }
+                    },
+                    error: function (data) {
+                        $('#result').append(`<p>Error: ${data.error}</p>`);
+                    }
+                });
+            });
+
+            $('#apiForm').on('submit', function (event) {
+                event.preventDefault();
+                $.post('/', $(this).serialize(), function (data) {
+                    $('#apiKeyResult').html('<p>' + data.message + '</p>');
+                });
+            });
+
+            $('#submitGoogleSpeechToTextCredentialJson').on('submit', function (event) {
+                event.preventDefault();
+                $.post('/', $(this).serialize(), function (data) {
+                    $('#submitGoogleSpeechToTextCredentialJsonResult').html('<p>' + data.message + '</p>');
+                });
+            });
+        });
+    </script>
+</head>
+<body>
+    <h1>Enter your Model API Key</h1>
+    <form id="apiForm" action="/" method="POST">
+        <input type="hidden" name="action" value="save_api_key">
+        <input type="text" name="api_key" placeholder="Enter API Key">
+        <button type="submit" id="api_sve_button">Save API Key</button>
+    </form>
+    <div id="apiKeyResult"></div>
+    <br>
+    <h1>Enter your Google Speech to Text Credential JSON</h1>
+    <form id="submitGoogleSpeechToTextCredentialJson" action="/" method="POST">
+        <input type="hidden" name="action" value="save_google_speech_to_text_credential_json">
+        <textarea name="google_speech_to_text_client_credential_json" placeholder="Enter Google Speech to Text Credential JSON" style="width: 100%; height: 200px;"></textarea>
+        <button type="submit" id="submit_json">Submit JSON</button>
+    </form>
+    <div id="submitGoogleSpeechToTextCredentialJsonResult"></div>
+    <br>
+    <h1>Upload Audio File</h1>
+    <form id="fileUploadForm" method="post" enctype="multipart/form-data" action="/upload">
+        <input type="file" name="audio_file" id="inputFile">
+        <button type="submit" id="upload_button">Upload</button>
+    </form>
+    <div id="audioFileUploadResult"></div>
+    <br>
+    <h1>Use basic web-based VAD functionality</h1>
+    <div class="block is-inline-flex">
+        <button id="toggleVAD" style="display:none" class="button is-primary is-loading" onclick="window.toggleVAD()" disabled>
+            Start VAD
+        </button>
+        <button id="use_vad_button" style="display: none;" onclick="toggleUseOfVad()" class="button is-primary">Use VAD for Input</button>
+        <button id="toggleShowSpeechRecordings" class="button is-primary" onclick="toggleShowSpeechRecordingsDiv()" style="display: none;">
+            Show Speech Recordings
+        </button>
+    </div>
+    <br>
+    <div class="block" id="speechRecordings" style="display:none">
+        <ul id="audio-list"></ul>
+    </div>
+</div>
+<hr>Results:<br>
+<div id="result"></div>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web/dist/bundle.min.js"></script>
+<script>
+    // Global Vars
+    window.lastKnownVADState = false
+    window.useVadForInput = false
+
+    function getVadToggleButton() {
+        return document.getElementById("toggleVAD")
+    }
+
+    function getSpeechRecordingsShowToggle() {
+        return document.getElementById("toggleShowSpeechRecordings")
+    }
+
+    function toggleShowSpeechRecordingsDiv() {
+        const speechRecordingsDiv = document.getElementById("speechRecordings")
+        speechRecordingsDiv.style.display = speechRecordingsDiv.style.display === "none" ? "block" : "none"
+    }
+
+    function toggleUseOfVad() {
+        window.toggleVAD();
+        // Change the flag
+        window.useVadForInput = !window.useVadForInput
+        if (window.useVadForInput == true) {
+            // Change Button Text
+            document.getElementById("use_vad_button").textContent = "Stop using VAD for Input";
+        } else {
+            // Change Button Text
+            document.getElementById("use_vad_button").textContent = "Use VAD for Input";
+        }
+    }
+
+    function addAudio(audioUrl) {
+        const entry = document.createElement("li")
+        const audio = document.createElement("audio")
+        audio.controls = true
+        audio.src = audioUrl
+        entry.appendChild(audio)
+        return entry
+    }
+
+    async function setStream() {
+        stream = await navigator.mediaDevices.getUserMedia({ "audio": true })
+    }
+
+    async function removeStream() {
+        stream.getTracks().forEach(function(track) {
+            track.stop()
+        });
+    }
+
+    async function setMyVad() {
+        window.myvad = await vad.MicVAD.new({
+            stream: stream,
+            submitUserSpeechOnPause: true,
+            onSpeechStart: () => {
+                console.log("Speech start")
+            },
+            onSpeechEnd: (arr) => {
+                console.log("Speech end")
+                const wavBuffer = vad.utils.encodeWAV(arr)
+                const base64 = vad.utils.arrayBufferToBase64(wavBuffer)
+                const url = `data:audio/wav;base64,${base64}`
+                const el = addAudio(url)
+                const speechList = document.getElementById("audio-list")
+                speechList.prepend(el)
+                getSpeechRecordingsShowToggle().style.display = "inline-block"
+                if (window.useVadForInput) {
+                    let file = new File([wavBuffer], "speech.wav", { type: "audio/wav" });
+                    let container = new DataTransfer();
+                    container.items.add(file);
+                    document.getElementById("inputFile").files = container.files;
+                    document.getElementById("upload_button").click();
+                    // empty the file input
+                    document.getElementById("inputFile").value = "";
+                }
+            },
+            redemptionFrames: 35,
+        });
+        // Show the button to use VAD
+        document.getElementById("use_vad_button").style.display = "inline-block";
+    }
+
+    async function main() {
+        try {
+            await setStream()
+            await setMyVad()
+
+            window.toggleVAD = async (byButton) => {
+                if (window.myvad.listening === false) {
+                    console.log("Started VAD")
+                    await setStream()
+                    window.myvad.start()
+                    if (byButton) {
+                        window.lastKnownVADState = true
+                    }
+                    window.lastKnownVADState = true
+                    getVadToggleButton().textContent = "Stop VAD"
+                } else {
+                    console.log("Paused VAD")
+                    removeStream();
+                    window.myvad.pause();
+                    if (byButton) {
+                        window.lastKnownVADState = false
+                    }
+                    getVadToggleButton().textContent = "Start VAD"
+                }
+            }
+            getVadToggleButton().disabled = false
+            getVadToggleButton().textContent = "Start VAD"
+        } catch (e) {
+            console.error("Failed:", e)
+        }
+
+    }
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            if (window.myvad) {
+                if (window.lastKnownVADState) {
+                    window.toggleVAD()
+                }
+            }
+        } else {
+            if (window.myvad && window.lastKnownVADState) {
+                window.toggleVAD()
+            }
+        }
+    });
+    window.blur = function () {
+        if (window.myvad) {
+            if (window.lastKnownVADState) {
+                window.toggleVAD()
+            }
+        }
+    }
+
+    var stream;
+    main()
+</script>
+</body>
+</html>

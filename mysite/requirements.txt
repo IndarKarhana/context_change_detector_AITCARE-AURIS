@@ -1,0 +1,5 @@
+google.generativeai
+pathlib
+SpeechRecognition
+streamlit
+soundfile
