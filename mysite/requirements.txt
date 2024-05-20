@@ -3,3 +3,4 @@ pathlib
 SpeechRecognition
 streamlit
 soundfile
+google-cloud-speech
